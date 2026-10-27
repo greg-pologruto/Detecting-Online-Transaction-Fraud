@@ -1,0 +1,1050 @@
+---
+title: "Final_Proj_Workspace"
+author: "Greg Pologruto"
+date: "2026-03-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_packages}
+pacman::p_load(tidyverse, janitor, nnet,caret,MASS,pROC, rsample)
+```
+
+```{r read_data, warning=FALSE}
+fraud_data <- read_csv("Digital_Payment_Fraud_Detection_Dataset.csv")
+fraud_data <- clean_names(fraud_data)
+
+fraud_data <- fraud_data |>
+  mutate(
+    fraud_label = as.factor(fraud_label),
+    transaction_type = as.factor(transaction_type),
+    payment_mode = as.factor(payment_mode),
+    device_type = as.factor(device_type),
+    is_international = as.factor(is_international),
+    device_location = as.factor(device_location)    
+  )|>
+  dplyr::select(-c(transaction_id,user_id))
+
+levels(fraud_data$fraud_label) <- make.names(levels(fraud_data$fraud_label))
+
+glimpse(fraud_data)
+```
+
+
+```{r split_data}
+set.seed(2026)
+d1 <- fraud_data|>
+  group_by(fraud_label)|>
+  sample_frac(0.8)
+
+test <- anti_join(fraud_data,d1)
+train <- d1|>
+  group_by(fraud_label)|>
+  sample_frac(0.8)
+validation <- anti_join(d1,train)
+```
+
+## Logistic Regression
+
+Since the decision threshold of 0.5 is no good in this dataset, I need to find an optimal threshold value. I will use ROC curves to determine this.
+
+SOURCE: https://www.geeksforgeeks.org/machine-learning/deciding-threshold-for-glm-logistic-regression-model-in-r/
+
+```{r logistic_model}
+# logistic1 <- glm(fraud_label ~ ., data=train, family = "binomial")
+# # coef(logistic1)
+# 
+# 
+# Lprobs <- predict(logistic1,validation,type="response")
+# # 
+# # Pred1 <- rep("0",1200)
+# # Pred1[Lprobs >= 0.5]="1"
+# Pred1 <- ifelse(Lprobs >= 0.5, "1", "0")
+# 
+# Pred1 <- factor(Pred1, levels = c("0", "1"))
+# Actual1 <- factor(validation$fraud_label, levels = c("0", "1"))
+# 
+# confusionMatrix(Pred1, Actual1, positive = "1")
+
+# T1 <- table(as.list(Pred1), validation$fraud_label)
+# confusionMatrix(T1)
+
+logistic1 <- glm(fraud_label ~ ., data = train, family = "binomial")
+
+Lprobs <- predict(logistic1, newdata = validation, type = "response")
+
+# library(pROC)
+# 
+# roc_obj <- roc(validation$fraud_label, Lprobs)
+# plot(roc_obj)
+# 
+# coords(roc_obj, "best", ret = "threshold") # find best threshold
+
+
+
+Pred1 <- ifelse(Lprobs >= 0.1, "X1", "X0")
+Pred1 <- factor(Pred1, levels = c("X0", "X1"))
+
+Actual1 <- validation$fraud_label
+
+confusionMatrix(Pred1, Actual1, positive = "X1")
+# 
+# for (t in c(0.03, 0.05, 0.07, 0.1)) {
+#   pred <- ifelse(Lprobs >= t, "X1", "X0")
+#   pred <- factor(pred, levels = c("X0", "X1"))
+#   print(confusionMatrix(pred, Actual1)$byClass["Sensitivity"])
+#   print(t)
+# } # find that 0.1 threshold works the best
+```
+
+### Second Logistic Model
+
+This time we will add weights to each class, since data is so unbalanced
+
+```{r logistic_model2}
+logistic2 <- glm(fraud_label ~ transaction_amount+device_location+account_age_days+is_international+ip_risk_score+login_attempts_last_24h, data=train, family = "binomial", weights = ifelse(train$fraud_label == "X1", 5, 1))
+
+
+Lprobs2 <- predict(logistic2,validation,type="response")
+
+Pred2 <- ifelse(Lprobs2 >= 0.2481125, "X1", "X0") # use ROC to determine optimal threshold
+
+Pred2 <- factor(Pred2, levels = c("X0", "X1"))
+
+Actual2 <- factor(validation$fraud_label, levels = c("X0", "X1"))
+
+confusionMatrix(Pred2, Actual2, positive = "X1")
+# 
+# library(pROC)
+# 
+# roc_obj <- roc(validation$fraud_label, Lprobs2)
+# plot(roc_obj)
+# 
+# coords(roc_obj, "best", ret = "threshold")
+
+# 
+# for (t in c(0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5)) {
+#   pred <- ifelse(Lprobs2 >= t, "X1", "X0")
+#   pred <- factor(pred, levels = c("X0", "X1"))
+#   print(confusionMatrix(pred, Actual2)$byClass["Specificity"])
+#   print(t)
+# }
+
+```
+
+### Third Logistic Model
+
+Using linear transformations and find interaction between variables to create best logistic model possible, 
+https://www.rdocumentation.org/packages/splines/versions/3.6.2/topics/ns
+
+```{r logistic_model3}
+library(splines)
+
+logistic3 <- glm(fraud_label ~ 
+                   ns(ip_risk_score, 3) +
+                   ns(account_age_days, 3) +
+                   previous_failed_attempts,
+                 data = train,
+                 family = "binomial",
+                 weights = ifelse(train$fraud_label == "X1", 5, 1))
+
+Lprobs3 <- predict(logistic3,validation,type="response")
+
+# find optimal threshold
+
+# roc_obj <- roc(validation$fraud_label, Lprobs3)
+# plot(roc_obj)
+# 
+# coords(roc_obj, "best", ret = "threshold")
+
+Pred3 <- ifelse(Lprobs3 >= 0.2623522, "X1", "X0") 
+
+Pred3 <- factor(Pred3, levels = c("X0", "X1"))
+
+Actual3 <- factor(validation$fraud_label, levels = c("X0", "X1"))
+
+confusionMatrix(Pred3, Actual3, positive = "X1")
+
+```
+
+### Test Best Logistic Model
+
+I would say that the third logistic model is the best one, it has the highest balanced accuracy. I believe that logistic model is not good at this type of classification problem since none of the 3 models performed very well.
+
+```{r best_logistic}
+LprobsB <- predict(logistic3,test,type="response")
+
+# find optimal threshold
+
+# roc_obj <- roc(test$fraud_label, LprobsB)
+# plot(roc_obj)
+# 
+# coords(roc_obj, "best", ret = "threshold")
+
+PredB <- ifelse(LprobsB >= 0.2280686, "X1", "X0") 
+
+PredB <- factor(PredB, levels = c("X0", "X1"))
+
+ActualB <- factor(test$fraud_label, levels = c("X0", "X1"))
+
+cm_log <- confusionMatrix(PredB, ActualB, positive = "X1")
+
+```
+
+## KNN
+
+### First KNN Model
+
+I do not need to scale the data since the preProcess command and predict command already do that. I will also use ROC to find the optimal threshold for the same reasons as the logistic model
+
+```{r knn}
+library(caret)
+
+set.seed(2026)
+
+# make sure response levels are correct
+train$fraud_label <- factor(train$fraud_label, levels = c("X0", "X1"))
+validation$fraud_label <- factor(validation$fraud_label, levels = c("X0", "X1"))
+
+# 10-fold cross validation
+ctrl_kfold <- caret::trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = caret::twoClassSummary
+)
+
+# values of k to try
+knn_grid <- expand.grid(k = 1:20)
+
+# fit baseline KNN
+knn_model1 <- caret::train(
+  fraud_label ~ .,
+  data = train,
+  method = "knn",
+  tuneGrid = knn_grid,
+  trControl = ctrl_kfold,
+  preProcess = c("center", "scale"),
+  metric = "ROC"
+)
+
+# look at results
+print(knn_model1)
+plot(knn_model1)
+knn_model1$bestTune
+
+# default class predictions on validation set
+final_pred <- predict(knn_model1, newdata = validation)
+
+# confusion matrix
+caret::confusionMatrix(final_pred, validation$fraud_label, positive = "X1")
+```
+
+### Second KNN Model
+
+Goal of this mode is to improve detection of fraud (class X1). For my Knn models I noticed that using the ROC curve just brings about a lot of errors, so instead I am using a for loop to check a bunch of possible thresholds and then picking the best. In this model i am using down sampling, i tested up sampling and it did not work well
+
+```{r knn2}
+library(caret)
+
+set.seed(2026)
+
+actual <- factor(validation$fraud_label, levels = c("X0", "X1"))
+
+ctrl_kfold2 <- caret::trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = caret::twoClassSummary,
+  sampling = "down"
+)
+
+kknn_grid <- expand.grid(
+  kmax = seq(3, 25, by = 2),
+  distance = c(1, 2),
+  kernel = c("rectangular", "triangular", "optimal")
+)
+
+knn_model2 <- caret::train(
+  fraud_label ~ ip_risk_score + previous_failed_attempts + account_age_days,
+  data = train,
+  method = "kknn",
+  tuneGrid = kknn_grid,
+  trControl = ctrl_kfold2,
+  preProcess = c("center", "scale"),
+  metric = "ROC"
+)
+
+print(knn_model2)
+knn_model2$bestTune
+
+knn_probs2 <- predict(knn_model2, newdata = validation, type = "prob")[, "X1"]
+
+results <- data.frame()
+
+for (t in seq(0.05, 0.30, by = 0.01)) {
+  pred <- factor(ifelse(knn_probs2 >= t, "X1", "X0"),
+                 levels = c("X0", "X1"))
+
+  cm <- caret::confusionMatrix(pred, actual, positive = "X1")
+
+  results <- rbind(results, data.frame(
+    threshold = t,
+    sensitivity = cm$byClass["Sensitivity"],
+    specificity = cm$byClass["Specificity"],
+    precision = cm$byClass["Pos Pred Value"],
+    F1 = cm$byClass["F1"]
+  ))
+}
+
+results[order(-results$F1), ]
+
+# apply threshold = 0.19
+final_pred2 <- ifelse(knn_probs2 >= 0.19, "X1", "X0")
+final_pred2 <- factor(final_pred2, levels = c("X0", "X1"))
+
+# confusion matrix
+caret::confusionMatrix(final_pred2, actual, positive = "X1")
+
+```
+
+### Third KNN Model
+
+In my second model the sensitivity is good but it is predicting too many as fraudulent, giving it a very poor accuracy and F1
+
+```{r knn3}
+
+# cross-validation setup
+ctrl_kfold3 <- caret::trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = caret::twoClassSummary,
+  sampling = "down"
+)
+
+# tuning grid
+kknn_grid <- expand.grid(
+  kmax = seq(5, 25, by = 2),
+  distance = c(1, 2),
+  kernel = c("rectangular", "triangular", "optimal")
+)
+
+# final KNN model
+knn_model3 <- caret::train(
+  fraud_label ~ ip_risk_score + previous_failed_attempts + account_age_days,
+  data = train,
+  method = "kknn",
+  tuneGrid = kknn_grid,
+  trControl = ctrl_kfold3,
+  preProcess = c("center", "scale"),
+  metric = "ROC"
+)
+
+print(knn_model3)
+plot(knn_model3)
+knn_model3$bestTune
+
+# predicted probabilities for fraud
+knn_probs3 <- predict(knn_model3, newdata = validation, type = "prob")[, "X1"]
+
+# threshold search
+results <- data.frame()
+
+for (t in seq(0.05, 0.40, by = 0.01)) {
+  
+  pred <- factor(ifelse(knn_probs3 >= t, "X1", "X0"),
+                 levels = c("X0", "X1"))
+  
+  cm <- caret::confusionMatrix(pred, actual, positive = "X1")
+  
+  results <- rbind(results, data.frame(
+    threshold = t,
+    sensitivity = cm$byClass["Sensitivity"],
+    specificity = cm$byClass["Specificity"],
+    precision = cm$byClass["Pos Pred Value"],
+    F1 = cm$byClass["F1"],
+    accuracy = cm$overall["Accuracy"]
+  ))
+}
+
+results_filtered <- results[results$precision >= 0.10, ]
+
+if (nrow(results_filtered) == 0) {
+  best_row <- results[which.max(results$F1), ]
+} else {
+  best_row <- results_filtered[which.max(results_filtered$F1), ]
+}
+
+best_t <- best_row$threshold
+best_t
+
+final_pred3 <- factor(ifelse(knn_probs3 >= best_t, "X1", "X0"),
+                      levels = c("X0", "X1"))
+
+caret::confusionMatrix(final_pred3, actual, positive = "X1")
+```
+
+### Test Best KNN
+
+The third KNN model does perform the best however does not perform well. This has led me to concluding that KNN is not a very good model choice for this type of problem.
+
+```{r knn_test}
+
+
+# get predicted probabilities for fraud (X1)
+knn_probs_test <- predict(knn_model3, newdata = test, type = "prob")[, "X1"]
+
+# actual values
+actual_test <- factor(test$fraud_label, levels = c("X0", "X1"))
+
+# apply chosen threshold (replace best_t if needed)
+best_t <- best_t  # or manually: best_t <- 0.30 (example)
+
+# predicted classes
+knn_pred_test <- ifelse(knn_probs_test >= best_t, "X1", "X0")
+knn_pred_test <- factor(knn_pred_test, levels = c("X0", "X1"))
+
+# confusion matrix
+cm_knn <- caret::confusionMatrix(knn_pred_test, actual_test, positive = "X1")
+
+cm_knn
+```
+
+
+
+## Decision Trees
+
+For decision trees, I need to redo my data, use initial_split command instead of group_by for stratification (rsample)
+
+Both boostin, bart required numeric values 0-no , 1-yes, for y variable
+randomForest keep factor
+
+need to find class using probability value obtained from prediction
+
+```{r data_for_trees}
+set.seed(20)
+
+split_data <- initial_split(fraud_data, prop = 0.8, strata = fraud_label)
+
+train_tree_no_cv <- training(split_data)
+test_tree <- testing(split_data)
+
+split2 <- initial_split(train_tree_no_cv, prop = 0.8, strata = fraud_label)
+train_tree <- training(split2)
+validation_tree <- testing(split2)
+
+```
+
+```{r basic_tree, warning = FALSE}
+library(tree)
+
+tree_model <- tree(fraud_label ~ ., data = train_tree)
+
+tree_predictions <- predict(tree_model, newdata = validation_tree, type = "class")
+tree_predictions <- factor(tree_predictions, levels = levels(validation_tree$fraud_label))
+
+confusionMatrix(tree_predictions, validation_tree$fraud_label)
+```
+
+### Random Forest
+
+mtry = sqrt(p), sqrt(12) = approx 3
+
+oob code : https://www.geeksforgeeks.org/r-machine-learning/how-to-calculate-the-oob-of-random-forest-in-r/
+
+```{r random_forest, warning=FALSE}
+library(randomForest)
+
+rf_model <- randomForest(fraud_label ~ ., data=train_tree_no_cv, mtry=3, importance=TRUE)
+
+# OOB error rate
+oob_error_rate <- rf_model$err.rate[nrow(rf_model$err.rate), "OOB"]
+print(paste("OOB Error Rate:", round(oob_error_rate * 100, 2), "%"))
+
+# Confusion matrix
+confusion_matrix <- rf_model$confusion
+print(confusion_matrix)
+
+varImpPlot(rf_model)
+head(importance(rf_model),5)
+```
+
+### Second Random Forest Model 
+
+Built using the 5 most "important" variables from previous model
+
+```{r random_forest2}
+library(randomForest)
+
+set.seed(2026)
+
+# make sure response is a factor with correct order
+train_tree_no_cv$fraud_label <- factor(train_tree_no_cv$fraud_label,
+                                       levels = c("X0", "X1"))
+
+rf_model2 <- randomForest(
+  fraud_label ~ transaction_amount + transaction_type + payment_mode + 
+    device_type + device_location,
+  data = train_tree_no_cv,
+  ntree = 500,
+  mtry = 2,
+  importance = TRUE,
+  proximity = FALSE
+)
+
+# final OOB error rate
+oob_error_rate <- rf_model2$err.rate[nrow(rf_model2$err.rate), "OOB"]
+cat("OOB Error Rate:", round(oob_error_rate * 100, 2), "%\n")
+
+# OOB confusion matrix stored in the model
+confusion_matrix <- rf_model2$confusion
+print(confusion_matrix)
+
+# variable importance
+var_importance <- importance(rf_model2)
+print(var_importance)
+
+# optional importance plot
+varImpPlot(rf_model2)
+
+# optional OOB error plot
+plot(rf_model2)
+```
+
+### Random Forest Model 3
+
+The second model only learned to predict X0. For this model I want to balance classes so that each tree learns on fraud cases.
+
+```{r randomForest3}
+
+set.seed(2026)
+
+# make sure response is a factor
+train_tree_no_cv$fraud_label <- factor(train_tree_no_cv$fraud_label,
+                                       levels = c("X0", "X1"))
+
+# class counts
+class_counts <- table(train_tree_no_cv$fraud_label)
+minority_n <- min(class_counts)
+
+rf_model3 <- randomForest(
+  fraud_label ~ transaction_amount + transaction_type + payment_mode + 
+    device_type + device_location,
+  data = train_tree_no_cv,
+  ntree = 1000,
+  mtry = 2,
+  importance = TRUE,
+  strata = train_tree_no_cv$fraud_label,
+  sampsize = c(minority_n, minority_n),
+  nodesize = 1
+)
+
+# final OOB error rate
+oob_error_rate3 <- rf_model3$err.rate[nrow(rf_model3$err.rate), "OOB"]
+cat("OOB Error Rate:", round(oob_error_rate3 * 100, 2), "%\n")
+
+# OOB confusion matrix
+confusion_matrix3 <- rf_model3$confusion
+print(confusion_matrix3)
+
+# variable importance
+var_importance3 <- importance(rf_model3)
+print(var_importance3)
+
+# optional plots
+varImpPlot(rf_model3)
+plot(rf_model3)
+```
+### RandomForest Model 4
+
+Change some parameters, use different mtry and play around with threshold values. This model performs very well 
+
+```{r randomForest4}
+library(randomForest)
+library(caret)
+
+set.seed(2026)
+
+
+# class counts
+class_counts <- table(train_tree_no_cv$fraud_label)
+minority_n <- min(class_counts)
+
+# less aggressive balanced sampling than model 3
+rf_model4 <- randomForest(
+  fraud_label ~ transaction_amount + transaction_type + payment_mode +
+    device_type + device_location,
+  data = train_tree_no_cv,
+  ntree = 1000,
+  mtry = 3,
+  importance = TRUE,
+  strata = train_tree_no_cv$fraud_label,
+  sampsize = c(minority_n * 2, minority_n),
+  nodesize = 1
+)
+
+# OOB error rate
+oob_error_rate4 <- rf_model4$err.rate[nrow(rf_model4$err.rate), "OOB"]
+cat("OOB Error Rate:", round(oob_error_rate4 * 100, 2), "%\n")
+
+# OOB confusion matrix from model
+confusion_matrix4 <- rf_model4$confusion
+print(confusion_matrix4)
+
+# variable importance
+print(importance(rf_model4))
+varImpPlot(rf_model4)
+
+# OOB error plot
+plot(rf_model4)
+
+
+
+rf_probs4 <- predict(rf_model4, newdata = train_tree_no_cv, type = "prob")[, "X1"]
+
+actual4 <- factor(train_tree_no_cv$fraud_label, levels = c("X0", "X1"))
+
+threshold_results4 <- data.frame()
+
+for (t in seq(0.10, 0.50, by = 0.05)) {
+  
+  pred_t <- factor(ifelse(rf_probs4 >= t, "X1", "X0"),
+                   levels = c("X0", "X1"))
+  
+  cm_t <- caret::confusionMatrix(pred_t, actual4, positive = "X1")
+  
+  threshold_results4 <- rbind(
+    threshold_results4,
+    data.frame(
+      threshold = t,
+      sensitivity = cm_t$byClass["Sensitivity"],
+      specificity = cm_t$byClass["Specificity"],
+      precision   = cm_t$byClass["Pos Pred Value"],
+      F1          = cm_t$byClass["F1"],
+      accuracy    = cm_t$overall["Accuracy"]
+    )
+  )
+}
+
+threshold_results4
+threshold_results4[order(-threshold_results4$F1), ]
+
+
+threshold_results4_fine <- data.frame()
+
+for (t in seq(0.05, 0.90, by = 0.01)) {
+  
+  pred_t <- factor(ifelse(rf_probs4 >= t, "X1", "X0"),
+                   levels = c("X0", "X1"))
+  
+  cm_t <- caret::confusionMatrix(pred_t, actual4, positive = "X1")
+  
+  threshold_results4_fine <- rbind(
+    threshold_results4_fine,
+    data.frame(
+      threshold = t,
+      sensitivity = cm_t$byClass["Sensitivity"],
+      specificity = cm_t$byClass["Specificity"],
+      precision   = cm_t$byClass["Pos Pred Value"],
+      F1          = cm_t$byClass["F1"],
+      accuracy    = cm_t$overall["Accuracy"]
+    )
+  )
+}
+
+threshold_results4_fine[order(-threshold_results4_fine$F1), ]
+
+
+best_t4 <- threshold_results4_fine$threshold[which.max(threshold_results4_fine$F1)]
+best_t4
+
+final_pred4 <- factor(ifelse(rf_probs4 >= best_t4, "X1", "X0"),
+                      levels = c("X0", "X1"))
+
+cm_rf4 <- caret::confusionMatrix(final_pred4, actual4, positive = "X1")
+cm_rf4
+
+```
+
+### Test Best Tree Model
+
+RF model 4 was the best by far, however it overfitted on this data
+
+```{r testRandomForest}
+rf_probs_test <- predict(rf_model4, newdata = test_tree, type = "prob")[, "X1"]
+
+actual_test <- factor(test_tree$fraud_label, levels = c("X0", "X1"))
+
+final_pred_test <- factor(ifelse(rf_probs_test >= 0.59, "X1", "X0"),
+                          levels = c("X0", "X1"))
+
+cm_rf <- caret::confusionMatrix(final_pred_test, actual_test, positive = "X1")
+```
+
+
+## Boosting/BART
+
+### Boosting
+
+```{r boosting, warning=FALSE}
+library(gbm)
+
+# change y var to make numeric
+boost_train <- d1|>
+  mutate(fraud_label = ifelse(fraud_label == "X0", 0,1))
+boost_test <- test|>
+  mutate(fraud_label = ifelse(fraud_label == "X0", 0,1))
+
+boost_model <- gbm(fraud_label ~ ., data = boost_train, distribution = "bernoulli", n.trees = 5000, interaction.depth = 3, shrinkage= 0.001)
+
+yhat_boost <- predict(boost_model, newdata = boost_test, n.trees = 5000, type = "response")
+
+actual <- factor(boost_test$fraud_label)
+
+roc_obj <- roc(actual, yhat_boost, levels = c(0, 1))
+
+best_thresh <- as.numeric(coords(roc_obj, "best", ret = "threshold"))
+best_thresh
+
+yhat_class <- ifelse(yhat_boost > best_thresh, 1, 0) 
+
+confusionMatrix(as.factor(yhat_class),as.factor(boost_test$fraud_label))
+
+
+
+```
+
+### BART
+
+
+
+```{r bart}
+library(BART)
+library(caret)
+library(pROC)
+
+boost_train <- d1 |>
+  mutate(fraud_label = ifelse(fraud_label == "X0", 0, 1))
+
+boost_test <- test |>
+  mutate(fraud_label = ifelse(fraud_label == "X0", 0, 1))
+
+# Create numeric design matrices
+xtrain <- model.matrix(fraud_label ~ . - 1, data = boost_train)
+xtest  <- model.matrix(fraud_label ~ . - 1, data = boost_test)
+
+# Response as numeric vector
+ytrain <- boost_train$fraud_label
+ytest  <- boost_test$fraud_label
+
+set.seed(2026)
+
+bart_model <- pbart(
+  x.train = xtrain,
+  y.train = ytrain,
+  x.test = xtest
+)
+
+yhat_bart_prob <- bart_model$prob.test.mean
+
+actual <- factor(ifelse(ytest == 1, "X1", "X0"), levels = c("X0", "X1"))
+
+roc_obj <- roc(actual, yhat_bart_prob, levels = c("X0", "X1"))
+
+thresh_tbl <- coords(
+  roc_obj,
+  x = "all",
+  ret = c("threshold", "sensitivity", "specificity"),
+  transpose = FALSE
+)
+
+thresh_tbl <- thresh_tbl[is.finite(thresh_tbl$threshold), ]
+thresh_tbl$youden <- thresh_tbl$sensitivity + thresh_tbl$specificity - 1
+best_thresh <- thresh_tbl$threshold[which.max(thresh_tbl$youden)]
+
+bart_pred <- factor(ifelse(yhat_bart_prob >= best_thresh, "X1", "X0"),
+                    levels = c("X0", "X1"))
+
+confusionMatrix(bart_pred, actual, positive = "X1")
+```
+
+### Second BART Model
+
+This BART model uses upSamples to increase performance
+
+```{r bart2}
+bart_train <- d1 |>
+  mutate(fraud_label = ifelse(fraud_label == "X0", 0, 1)) |>
+  as.data.frame()
+
+bart_test <- test |>
+  mutate(fraud_label = ifelse(fraud_label == "X0", 0, 1)) |>
+  as.data.frame()
+
+train_up <- upSample(
+  x = bart_train |> dplyr::select(-fraud_label),
+  y = factor(bart_train$fraud_label, levels = c(0, 1))
+)
+
+# upSample renames response to "Class"
+train_up <- train_up |>
+  mutate(fraud_label = ifelse(Class == "1", 1, 0)) |>
+  dplyr::select(-Class)
+
+
+xtrain2 <- model.matrix(fraud_label ~ . - 1, data = train_up)
+ytrain2 <- train_up$fraud_label
+
+xtest2 <- model.matrix(fraud_label ~ . - 1, data = bart_test)
+ytest2 <- bart_test$fraud_label
+
+
+set.seed(2026)
+
+bart_model2 <- pbart(
+  x.train = xtrain2,
+  y.train = ytrain2,
+  x.test  = xtest2,
+  ntree = 100,
+  ndpost = 1000,
+  nskip = 200
+)
+
+bart_prob2 <- bart_model2$prob.test.mean
+
+actual2 <- factor(ifelse(ytest2 == 1, "X1", "X0"), levels = c("X0", "X1"))
+
+
+bart_pred2 <- ifelse(bart_prob2 >= 0.05, "X1", "X0")
+bart_pred2 <- factor(bart_pred2, levels = c("X0", "X1"))
+
+cm_bart <- confusionMatrix(bart_pred2, actual2, positive = "X1")
+
+```
+
+
+## RESULTS -------------------------------
+
+Now I want to compare the results of the best models from the 4 different "Types" of models I used
+
+```{r result_of_test}
+get_metrics <- function(cm) {
+  data.frame(
+    Accuracy = as.numeric(cm$overall["Accuracy"]),
+    Sensitivity = as.numeric(cm$byClass["Sensitivity"]),
+    Specificity = as.numeric(cm$byClass["Specificity"]),
+    Precision = as.numeric(cm$byClass["Pos Pred Value"]),
+    F1 = as.numeric(cm$byClass["F1"])
+  )
+}
+
+model_results <- rbind(
+  cbind(Model = "Logistic", get_metrics(cm_log)),
+  cbind(Model = "KNN", get_metrics(cm_knn)),
+  cbind(Model = "Random Forest", get_metrics(cm_rf)),
+  cbind(Model = "BART", get_metrics(cm_bart))
+)
+
+rownames(model_results) <- NULL
+
+# model_results
+
+# ai assisted in creating this table
+library(kableExtra)
+
+# round values
+model_results_fmt <- model_results
+model_results_fmt[,-1] <- round(model_results_fmt[,-1], 3)
+
+# find best row (highest F1 or whatever you want)
+best_row <- which.max(model_results_fmt$F1)
+
+kable(model_results_fmt,
+      caption = "Model Performance Comparison",
+      align = "lccccc") %>%
+  kable_styling(full_width = FALSE,
+                position = "center",
+                bootstrap_options = c("striped")) %>%
+  
+  # HEADER STYLE (blue like your image)
+  row_spec(0,
+           bold = TRUE,
+           color = "white",
+           background = "#4F79A7",
+           font_size = 22) %>%
+  
+  # ALTERNATING ROW COLORS (light gray)
+  row_spec(1:nrow(model_results_fmt),
+           background = ifelse(1:nrow(model_results_fmt) %% 2 == 0,
+                               "#EDEFF2", "#D6DBE3")) %>%
+  
+  # HIGHLIGHT BEST MODEL (green)
+  row_spec(best_row,
+           background = "#00FF00",
+           bold = TRUE)
+
+```
+
+Group bar chart of results
+
+```{r group_bar}
+model_long <- model_results |>
+  pivot_longer(
+    cols = c(Accuracy, Sensitivity, Specificity, Precision, F1),
+    names_to = "Metric",
+    values_to = "Value"
+  )
+
+ggplot(model_long, aes(x = Model, y = Value, fill = Metric)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(
+    title = "Model Comparison Across Performance Metrics",
+    x = "Model",
+    y = "Metric Value"
+  ) +
+  ylim(0, 1) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+scatter plot of precision
+
+```{r scatter_results}
+ggplot(model_results, aes(x = Precision, y = Sensitivity, label = Model)) +
+  geom_point(size = 4) +
+  geom_text(vjust = -0.8) +
+  theme_minimal() +
+  labs(
+    title = "Precision vs Sensitivity by Model",
+    x = "Precision",
+    y = "Sensitivity"
+  ) +
+  xlim(0, 1) +
+  ylim(0, 1)
+
+```
+
+
+
+heatmap of metrics
+
+```{r result_heatmap}
+ggplot(model_long, aes(x = Metric, y = Model, fill = Value)) +
+  geom_tile() +
+  geom_text(aes(label = round(Value, 3)), color = "white", size = 4) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    title = "Heatmap of Model Performance Metrics",
+    x = "Metric",
+    y = "Model"
+  )
+```
+
+### Select Best model
+
+Among all models evaluated, logistic regression performed best for fraud detection. Although it had lower overall accuracy, it achieved the highest sensitivity and F1 score, making it the most effective at identifying fraudulent transactions. In contrast, models such as Random Forest achieved high accuracy but failed to detect fraud, demonstrating that accuracy alone is not an appropriate metric for this problem.
+
+### Logistic Visualizations
+
+ROC curve
+
+```{r roc_curve_log}
+library(pROC)
+
+# predicted probabilities
+log_probs <- predict(logistic3, newdata = test, type = "response")
+
+# actual
+actual <- factor(test$fraud_label, levels = c("X0", "X1"))
+
+# ROC
+roc_log <- roc(actual, log_probs, levels = c("X0", "X1"))
+
+roc_df <- data.frame(
+  fpr = 1 - roc_log$specificities,
+  tpr = roc_log$sensitivities
+)
+
+# Sort by x-axis so the curve draws correctly
+roc_df <- roc_df[order(roc_df$fpr), ]
+
+# Plot
+ggplot(roc_df, aes(x = fpr, y = tpr)) +
+  geom_line(linewidth = 1, color="red") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
+  labs(
+    title = "ROC Curve - Logistic Regression",
+    x = "1 - Specificity",
+    y = "Sensitivity"
+  ) +
+  theme_minimal()
+
+# AUC
+auc(roc_log)
+```
+
+
+
+Probability Distribution by class
+
+```{r prob_dist}
+library(ggplot2)
+
+df_plot <- data.frame(
+  prob = log_probs,
+  actual = actual
+)
+
+ggplot(df_plot, aes(x = prob, fill = actual)) +
+  geom_density(alpha = 0.5) +
+  theme_minimal() +
+  labs(
+    title = "Predicted Probability Distribution (Logistic Model)",
+    x = "Predicted Probability of Fraud",
+    fill = "Actual Class"
+  )
+```
+
+Confusion Matrix heat map
+
+```{r cmheatmaplog}
+cm <- cm_log$table
+cm_df <- as.data.frame(cm)
+
+ggplot(cm_df, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), size = 8, color="black") +
+  scale_fill_gradient(low = "white", high = "purple") +
+  theme_minimal() +
+  labs(
+    title = "Confusion Matrix Heatmap - Logistic Model"
+  )
+```
+
+Coefficient Importance Plot
+
+```{r cip_log}
+coef_df <- data.frame(
+  Variable = names(coef(logistic3))[-1],
+  Coefficient = coef(logistic3)[-1]
+)
+
+ggplot(coef_df, aes(x = reorder(Variable, abs(Coefficient)), y = Coefficient)) +
+  geom_col(col="black", fill = "red") +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Logistic Regression Coefficients",
+    x = "Variables",
+    y = "Coefficient Value"
+  )
+```
+
+
+
