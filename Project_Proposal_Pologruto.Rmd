@@ -1,0 +1,132 @@
+---
+title: "Project Proposal"
+author: "Greg Pologruto"
+date: "2026-02-16"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.height=5)
+```
+
+
+## Detecting Digital Payment Fraud
+
+The title of my project is *Detecting Digital Payment Fraud*. This will be a classification problem. Classifying digital payments as either fraudulent or not.
+
+
+
+### Research Goals
+  - Compare how well different classification models can detect fraud.
+  - Discover which variables are most significant for detecting fraud.
+  - Interpret results from the different classification models.
+  
+  
+
+### Data Source:
+[Kaggle](https://www.kaggle.com/datasets/jayjoshi37/digital-payment-fraud-detection?select=Digital_Payment_Fraud_Detection_Dataset.csv)
+
+
+
+### Data Description
+
+There are 7,500 rows. There are 15 columns. The dependent variable is `fraud_label` and this is the variable I will predict. There are some categorical variables like `transaction_type` and `payment_mode` that I can use in the model. There are also many quantitative variables, such as `account_age_days`, `ip_risk_score`, `previous_failed_attempts`, that can also be used to predict `fraud_label`.
+
+```{r descrp, warning=FALSE,message=FALSE,echo=F}
+pacman::p_load(tidyverse, janitor)
+
+fraud_data <- read_csv("Digital_Payment_Fraud_Detection_Dataset.csv")
+fraud_data <- clean_names(fraud_data)
+
+fraud_data <- fraud_data |>
+  mutate(
+    fraud_label = as.factor(fraud_label),
+    transaction_type = as.factor(transaction_type),
+    payment_mode = as.factor(payment_mode),
+    device_type = as.factor(device_type)
+  )
+
+
+glimpse(fraud_data)
+```
+
+
+
+### Discuss Variables
+
+
+
+```{r dependent, echo=FALSE}
+# barchart for each class
+ggplot(fraud_data,
+       aes(x=fraud_label,fill=fraud_label))+
+  geom_bar(color="black")+
+  labs(
+    title="Count of Dependent Variable Classes",
+    y = "Count",
+    x= "Class"
+  )+
+  geom_text(stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.5
+  )+
+  theme_minimal()
+
+```
+
+This barchart shows us that there are 7011 transactions that are not fraudulent and 489 transactions that are. (0=no fraud, 1=fraud) 
+
+
+
+
+
+```{r boxplot,echo=FALSE}
+ggplot(fraud_data,
+       aes(y=transaction_amount,fill=fraud_label))+
+  geom_boxplot(color="black")+
+  labs(
+    title="Distribution of Transaction Amounts by Legitimacy",
+    x = "Fraud Label",
+    y = "Amount (USD)"
+  )+
+  theme_minimal()
+```
+
+Boxplot of `transaction_amount` sorted by `fraud_label`. The distributions look nearly identical, however this variable could still be useful in the classification models. 
+
+```{r payment,echo=FALSE}
+ggplot(fraud_data,
+       aes(x=payment_mode,fill=payment_mode))+
+  geom_bar(color="black")+
+  labs(
+    title="Count of Payment Modes",
+    y = "Count",
+    x= "Payment Mode"
+  )+
+  geom_text(stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.5
+  )+
+  theme_minimal()
+```
+
+Bar chart of `payment_mode`. This shows that there are 4 types of payments in this dataset and there is about an equal amount of each.
+
+
+
+
+```{r barchartbypay, echo = F}
+ggplot(fraud_data,
+       aes(x=fraud_label,fill=payment_mode))+
+  geom_bar(position='dodge',col='black')+
+  labs(
+    title="Distribution of Payment Mode within Fraudulent/Legal Transactions",
+    y = "Count",
+    x= "0=Legal 1=Fraud"
+  )+
+  scale_y_continuous()+
+  theme_minimal()
+```
+
+This is a barchart of the amount of fraudulent/nonfradulent transactions filled by payment type (1=Fraudulent). It seems that the payment type is evenly distributed in both fraudulent and legal transactions.
+
