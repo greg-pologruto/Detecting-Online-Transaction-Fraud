@@ -64,38 +64,6 @@ Test-set performance, with **fraud as the positive class**:
 - **Logistic regression was the preferred model.** It caught 87 of 98 fraudulent transactions (89% sensitivity), at the cost of many false positives — an acceptable trade-off when missed fraud is more costly than a flagged legitimate payment.
 - **Signal in the data is weak.** Balanced accuracy stays close to 0.5 for every model, and the class distributions overlap heavily for most predictors (e.g., IP risk score means of 0.50 vs. 0.51). Account age showed the clearest visual difference between classes.
 
-## Repository Structure
-
-```
-├── Final_Project.Rmd                          # Full analysis (R Markdown)
-├── Final_Project_Report.pdf                   # Rendered report
-├── Digital_Payment_Fraud_Detection_Dataset.csv
-└── README.md
-```
-
-## Getting Started
-
-### Requirements
-
-R (≥ 4.2 recommended) and the following packages:
-
-```r
-install.packages(c(
-  "tidyverse", "janitor", "rsample", "caret", "kknn",
-  "randomForest", "gbm", "BART", "pROC", "splines", "scales"
-))
-```
-
-### Running the analysis
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/<your-username>/<repo-name>.git
-   ```
-2. Open `Final_Project.Rmd` in RStudio.
-3. Make sure the dataset CSV is in the same folder.
-4. Knit the document, or run the chunks in order. Random seeds (`2026`, `20`) are set for reproducibility.
-
 ## Future Work
 
 - Try more advanced gradient boosting (XGBoost, LightGBM) and neural networks
