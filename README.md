@@ -1,4 +1,4 @@
-# Digital Payment Fraud Detection
+# Digital Online Transaction Fraud Detection
 
 A comparison of statistical learning models for flagging fraudulent online transactions, built in R. The project covers data cleaning, exploratory analysis, handling severe class imbalance, threshold tuning, and evaluation with metrics that matter for fraud (sensitivity over raw accuracy).
 
